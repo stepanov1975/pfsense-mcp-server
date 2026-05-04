@@ -1,0 +1,20 @@
+[project]
+name = "pfsense-mcp-server"
+version = "0.1.0"
+description = "Read-only pfSense MCP server using authenticated WebGUI scraping"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.pylint.main]
+py-version = "3.11"
+
+[tool.pylint.messages_control]
+disable = [
+    "missing-function-docstring",
+    "line-too-long",
+    "too-few-public-methods",
+]

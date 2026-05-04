@@ -1,0 +1,11 @@
+# Keep local secrets out of git
+.env
+.env.*
+!.env.example
+
+# Python local artifacts
+__pycache__/
+.pytest_cache/
+.pylint.d/
+*.py[cod]
+.venv/
