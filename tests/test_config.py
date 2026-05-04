@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
+from pfsense_mcp import PfSenseWebGuiClient
 from pfsense_mcp.config import ConfigError, PfSenseConfig, load_config
+
+
+def test_package_exports_webgui_client() -> None:
+    assert PfSenseWebGuiClient is not None
 
 
 def write_env(tmp_path: Path, content: str) -> Path:

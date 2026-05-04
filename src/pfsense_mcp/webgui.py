@@ -1,12 +1,58 @@
-"""pfSense WebGUI authentication parsing helpers."""
+"""pfSense WebGUI authentication and session helpers."""
 
 from __future__ import annotations
 
 from html.parser import HTMLParser
+from http.cookiejar import CookieJar
+import ssl
+from typing import Protocol
+from urllib.parse import unquote, urlencode, urlparse
+from urllib.request import HTTPCookieProcessor, HTTPSHandler, Request, build_opener
+
+from pfsense_mcp.config import PfSenseConfig
 
 
 class WebGuiAuthError(ValueError):
     """Raised when pfSense WebGUI authentication HTML cannot be parsed safely."""
+
+
+class WebGuiTransport(Protocol):
+    """Minimal transport interface used by the WebGUI session client."""
+
+    def get(self, url: str) -> str:
+        """Return the decoded HTML body for a WebGUI GET request."""
+
+    def post_form(self, url: str, data: dict[str, str]) -> str:
+        """Return the decoded HTML body for a form-encoded WebGUI POST request."""
+
+
+class UrlLibWebGuiTransport:
+    """Cookie-preserving urllib transport for pfSense WebGUI requests."""
+
+    def __init__(self, *, verify_tls: bool = True, timeout: float = 15.0) -> None:
+        context = ssl.create_default_context() if verify_tls else ssl._create_unverified_context()
+        self._opener = build_opener(HTTPCookieProcessor(CookieJar()), HTTPSHandler(context=context))
+        self._timeout = timeout
+
+    def get(self, url: str) -> str:
+        """Return the decoded HTML body for a WebGUI GET request."""
+        return self._open(Request(url, method="GET"))
+
+    def post_form(self, url: str, data: dict[str, str]) -> str:
+        """Return the decoded HTML body for a form-encoded WebGUI POST request."""
+        encoded = urlencode(data).encode("utf-8")
+        request = Request(
+            url,
+            data=encoded,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        return self._open(request)
+
+    def _open(self, request: Request) -> str:
+        with self._opener.open(request, timeout=self._timeout) as response:
+            charset = response.headers.get_content_charset() or "utf-8"
+            return response.read().decode(charset, errors="replace")
 
 
 class _CsrfInputParser(HTMLParser):
@@ -61,3 +107,59 @@ def login_succeeded(html: str) -> bool:
         "dashboard",
     )
     return all(marker in normalized for marker in success_markers)
+
+
+class PfSenseWebGuiClient:
+    """Authenticated read-only pfSense WebGUI client."""
+
+    def __init__(self, config: PfSenseConfig, *, transport: WebGuiTransport | None = None) -> None:
+        self._config = config
+        self._transport = transport or UrlLibWebGuiTransport()
+        self._authenticated = False
+
+    @property
+    def authenticated(self) -> bool:
+        """Return whether the current session has completed WebGUI login."""
+        return self._authenticated
+
+    def login(self) -> None:
+        """Authenticate to pfSense WebGUI using the configured read-only account."""
+        login_url = self._build_url("/")
+        login_page = self._transport.get(login_url)
+        csrf_magic = extract_csrf_magic(login_page)
+        payload = build_login_payload(
+            csrf_magic=csrf_magic,
+            username=self._config.username,
+            password=self._config.password,
+        )
+        response = self._transport.post_form(login_url, payload)
+        if not login_succeeded(response):
+            self._authenticated = False
+            raise WebGuiAuthError("pfSense WebGUI login did not reach authenticated dashboard")
+        self._authenticated = True
+
+    def get_page(self, path: str) -> str:
+        """Return an authenticated WebGUI page by relative path."""
+        page_url = self._build_url(path)
+        if not self._authenticated:
+            self.login()
+        return self._transport.get(page_url)
+
+    def _build_url(self, path: str) -> str:
+        safe_path = _normalize_relative_webgui_path(path)
+        return f"{self._config.base_url}{safe_path}"
+
+
+def _normalize_relative_webgui_path(path: str) -> str:
+    parsed = urlparse(path)
+    if parsed.scheme or parsed.netloc:
+        raise ValueError("Expected a relative WebGUI path, not an absolute URL")
+
+    decoded_path = unquote(parsed.path)
+    if any(part == ".." for part in decoded_path.split("/")):
+        raise ValueError("WebGUI path must not contain parent directory segments")
+
+    normalized_path = parsed.path if parsed.path.startswith("/") else f"/{parsed.path}"
+    if parsed.query:
+        return f"{normalized_path}?{parsed.query}"
+    return normalized_path
