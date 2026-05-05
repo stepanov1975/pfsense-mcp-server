@@ -53,6 +53,10 @@ PFSENSE_BASE_URL=https://192.168.1.1:8843
 PFSENSE_USERNAME=<read-only-pfsense-username>
 PFSENSE_PASSWORD=<read-only-pfsense-password>
 PFSENSE_MCP_READ_ONLY=true
+# Optional safety/runtime knobs. Defaults shown.
+PFSENSE_VERIFY_TLS=true
+PFSENSE_TIMEOUT_SECONDS=15.0
+PFSENSE_MAX_RESPONSE_BYTES=2000000
 ```
 
 Recommended file permissions:
@@ -63,9 +67,11 @@ chmod 600 .env
 
 Notes:
 
-- `PFSENSE_BASE_URL` must include scheme and host.
+- `PFSENSE_BASE_URL` must be an HTTPS origin URL only: scheme, host, and optional port; no username, password, path, query, or fragment.
 - HTTPS is required by default.
 - `PFSENSE_MCP_READ_ONLY` defaults to `true` when omitted, but keeping it explicit is clearer.
+- `PFSENSE_VERIFY_TLS=false` is available for local self-signed certificates, but only use it after accepting the MITM risk.
+- `PFSENSE_MCP_ENV_PATH` can point the installed console script at a gitignored env file when the process is launched from another working directory.
 - Use a dedicated pfSense read-only account.
 
 ## Development setup
@@ -107,8 +113,10 @@ Example Hermes MCP configuration snippet, for review only until explicitly appli
 ```yaml
 mcp_servers:
   pfsense:
-    command: "/bin/bash"
-    args: ["-lc", "cd /home/alex/repos/pfsense-mcp-server && exec python3 -m pfsense_mcp.server"]
+    command: "python3"
+    args: ["-m", "pfsense_mcp.server"]
+    env:
+      PFSENSE_MCP_ENV_PATH: "/home/alex/repos/pfsense-mcp-server/.env"
     timeout: 120
     connect_timeout: 60
 ```
@@ -156,7 +164,13 @@ arp_entries = client.get_arp_table()
 dhcp_leases = client.get_dhcp_leases()
 ```
 
-For self-signed local pfSense certificates, pass an explicit transport with TLS verification disabled only when you understand the risk:
+For self-signed local pfSense certificates, prefer the `.env` setting below only when you understand the MITM risk:
+
+```env
+PFSENSE_VERIFY_TLS=false
+```
+
+For one-off Python snippets, you can still pass an explicit transport:
 
 ```python
 from pfsense_mcp.webgui import PfSenseWebGuiClient, UrlLibWebGuiTransport

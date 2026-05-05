@@ -6,8 +6,8 @@ from html.parser import HTMLParser
 from http.cookiejar import CookieJar
 import ssl
 from typing import Protocol
-from urllib.parse import unquote, urlencode, urlparse
-from urllib.request import HTTPCookieProcessor, HTTPSHandler, Request, build_opener
+from urllib.parse import ParseResult, unquote, urlencode, urljoin, urlparse
+from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, HTTPSHandler, Request, build_opener
 
 from pfsense_mcp.arp import ArpEntry, parse_arp_table
 from pfsense_mcp.config import PfSenseConfig
@@ -16,6 +16,24 @@ from pfsense_mcp.dhcp import DhcpLease, parse_dhcp_leases
 
 class WebGuiAuthError(ValueError):
     """Raised when pfSense WebGUI authentication HTML cannot be parsed safely."""
+
+
+class WebGuiTransportError(RuntimeError):
+    """Raised when WebGUI transport behavior would violate safety constraints."""
+
+
+DEFAULT_MAX_RESPONSE_BYTES = 2_000_000
+
+
+class SameOriginHttpsRedirectHandler(HTTPRedirectHandler):
+    """Redirect handler that permits only same-origin HTTPS WebGUI redirects."""
+
+    def redirect_request(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self, req: Request, fp: object, code: int, msg: str, headers: object, newurl: str
+    ) -> Request | None:
+        redirected_url = urljoin(req.full_url, newurl)
+        _ensure_same_origin_https(req.full_url, redirected_url, "Unsafe WebGUI redirect blocked")
+        return super().redirect_request(req, fp, code, msg, headers, redirected_url)
 
 
 class WebGuiTransport(Protocol):
@@ -31,10 +49,21 @@ class WebGuiTransport(Protocol):
 class UrlLibWebGuiTransport:
     """Cookie-preserving urllib transport for pfSense WebGUI requests."""
 
-    def __init__(self, *, verify_tls: bool = True, timeout: float = 15.0) -> None:
+    def __init__(
+        self,
+        *,
+        verify_tls: bool = True,
+        timeout: float = 15.0,
+        max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+    ) -> None:
         context = ssl.create_default_context() if verify_tls else ssl._create_unverified_context()
-        self._opener = build_opener(HTTPCookieProcessor(CookieJar()), HTTPSHandler(context=context))
+        self._opener = build_opener(
+            HTTPCookieProcessor(CookieJar()),
+            HTTPSHandler(context=context),
+            SameOriginHttpsRedirectHandler(),
+        )
         self._timeout = timeout
+        self._max_response_bytes = max_response_bytes
 
     def get(self, url: str) -> str:
         """Return the decoded HTML body for a WebGUI GET request."""
@@ -52,9 +81,14 @@ class UrlLibWebGuiTransport:
         return self._open(request)
 
     def _open(self, request: Request) -> str:
+        _ensure_https_url(request.full_url, "Unsafe WebGUI request URL")
         with self._opener.open(request, timeout=self._timeout) as response:
+            _ensure_same_origin_https(request.full_url, response.geturl(), "Unsafe WebGUI response URL")
             charset = response.headers.get_content_charset() or "utf-8"
-            return response.read().decode(charset, errors="replace")
+            body = response.read(self._max_response_bytes + 1)
+            if len(body) > self._max_response_bytes:
+                raise WebGuiTransportError("WebGUI response exceeded configured size limit")
+            return body.decode(charset, errors="replace")
 
 
 class _CsrfInputParser(HTMLParser):
@@ -116,7 +150,11 @@ class PfSenseWebGuiClient:
 
     def __init__(self, config: PfSenseConfig, *, transport: WebGuiTransport | None = None) -> None:
         self._config = config
-        self._transport = transport or UrlLibWebGuiTransport()
+        self._transport = transport or UrlLibWebGuiTransport(
+            verify_tls=config.verify_tls,
+            timeout=config.timeout_seconds,
+            max_response_bytes=config.max_response_bytes,
+        )
         self._authenticated = False
 
     @property
@@ -158,6 +196,31 @@ class PfSenseWebGuiClient:
     def _build_url(self, path: str) -> str:
         safe_path = _normalize_relative_webgui_path(path)
         return f"{self._config.base_url}{safe_path}"
+
+
+def _ensure_same_origin_https(original_url: str, candidate_url: str, message: str) -> None:
+    _ensure_https_url(original_url, message)
+    _ensure_https_url(candidate_url, message)
+    original = urlparse(original_url)
+    candidate = urlparse(candidate_url)
+    if _origin_tuple(candidate) != _origin_tuple(original):
+        raise WebGuiTransportError(message)
+
+
+def _ensure_https_url(url: str, message: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise WebGuiTransportError(message)
+    _origin_tuple(parsed)
+
+
+def _origin_tuple(parsed: ParseResult) -> tuple[str, str, int | None]:
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise WebGuiTransportError("Invalid WebGUI URL port") from exc
+    default_port = 443 if parsed.scheme == "https" else None
+    return (parsed.scheme.lower(), (parsed.hostname or "").lower(), port or default_port)
 
 
 def _normalize_relative_webgui_path(path: str) -> str:
