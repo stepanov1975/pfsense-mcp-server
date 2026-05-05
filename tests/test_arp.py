@@ -2,67 +2,26 @@
 
 import pytest
 
-from support import dashboard_page, sample_config
+from support import FakeStatusPageTransport, sample_config, status_table_html
 from pfsense_mcp.arp import ArpEntry, ArpTableParseError, parse_arp_table
 from pfsense_mcp.webgui import PfSenseWebGuiClient
 
 
-class FakePageClientTransport:
-    """Deterministic transport for testing ARP page retrieval."""
-
-    def __init__(self) -> None:
-        self.get_urls: list[str] = []
-        self.posted_forms: list[tuple[str, dict[str, str]]] = []
-
-    def get(self, url: str) -> str:
-        self.get_urls.append(url)
-        if url.endswith("/"):
-            return '<input name="__csrf_magic" value="sid:csrf-token,1700000000">'
-        return arp_html()
-
-    def post_form(self, url: str, data: dict[str, str]) -> str:
-        self.posted_forms.append((url, data))
-        return dashboard_page()
-
-
 def arp_html() -> str:
-    return """
-    <html>
-      <body>
-        <table><thead><tr><th>Unrelated</th></tr></thead><tbody><tr><td>ignore me</td></tr></tbody></table>
-        <table class="table table-striped">
-          <thead>
-            <tr>
-              <th>IP address</th>
-              <th>MAC address</th>
-              <th>Hostname</th>
-              <th>Interface</th>
-              <th>Expires</th>
-              <th>Type</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><a href="diag_ping.php?host=192.0.2.10">192.0.2.10</a></td>
-              <td>00:11:22:33:44:55</td>
-              <td>printer&amp;office</td>
-              <td>LAN</td>
-              <td>1180</td>
-              <td>ethernet</td>
-            </tr>
-            <tr>
-              <td>192.0.2.1</td>
-              <td>aa:bb:cc:dd:ee:ff</td>
-              <td>&nbsp;</td>
-              <td>WAN</td>
-              <td>permanent</td>
-              <td>ethernet</td>
-            </tr>
-          </tbody>
-        </table>
-      </body>
-    </html>
-    """
+    return status_table_html(
+        ["IP address", "MAC address", "Hostname", "Interface", "Expires", "Type"],
+        [
+            [
+                '<a href="diag_ping.php?host=192.0.2.10">192.0.2.10</a>',
+                "00:11:22:33:44:55",
+                "printer&amp;office",
+                "LAN",
+                "1180",
+                "ethernet",
+            ],
+            ["192.0.2.1", "aa:bb:cc:dd:ee:ff", "&nbsp;", "WAN", "permanent", "ethernet"],
+        ],
+    )
 
 
 def test_parse_arp_table_returns_empty_list_for_valid_empty_table() -> None:
@@ -105,7 +64,7 @@ def test_parse_arp_table_extracts_pfsense_rows() -> None:
 
 
 def test_client_get_arp_table_fetches_status_arp_page() -> None:
-    transport = FakePageClientTransport()
+    transport = FakeStatusPageTransport(arp_html())
     client = PfSenseWebGuiClient(sample_config(), transport=transport)
 
     entries = client.get_arp_table()

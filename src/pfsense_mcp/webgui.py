@@ -11,6 +11,7 @@ from urllib.request import HTTPCookieProcessor, HTTPSHandler, Request, build_ope
 
 from pfsense_mcp.arp import ArpEntry, parse_arp_table
 from pfsense_mcp.config import PfSenseConfig
+from pfsense_mcp.dhcp import DhcpLease, parse_dhcp_leases
 
 
 class WebGuiAuthError(ValueError):
@@ -149,6 +150,10 @@ class PfSenseWebGuiClient:
     def get_arp_table(self) -> list[ArpEntry]:
         """Return parsed ARP entries from the read-only WebGUI ARP table page."""
         return parse_arp_table(self.get_page("/status_arp.php"))
+
+    def get_dhcp_leases(self) -> list[DhcpLease]:
+        """Return parsed DHCP leases from the read-only WebGUI DHCP leases page."""
+        return parse_dhcp_leases(self.get_page("/status_dhcp_leases.php"))
 
     def _build_url(self, path: str) -> str:
         safe_path = _normalize_relative_webgui_path(path)
