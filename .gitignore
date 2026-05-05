@@ -9,3 +9,8 @@ __pycache__/
 .pylint.d/
 *.py[cod]
 .venv/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/

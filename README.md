@@ -43,6 +43,10 @@ This repository is designed for a cautious homelab security workflow.
 - `mcp` Python SDK for the stdio MCP server
 - `pytest` for tests
 - `pylint` for linting
+- `bandit` for Python static security scanning
+- `detect-secrets` for repository secret scanning
+- `pip-audit` for Python dependency vulnerability auditing
+- `pre-commit` for local commit-time guardrails
 
 ## Configuration
 
@@ -81,8 +85,9 @@ From the repository root:
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python3 -m pip install --upgrade pip pytest pylint
-python3 -m pip install -e .
+python3 -m pip install --upgrade pip
+python3 -m pip install -e ".[dev]"
+pre-commit install
 ```
 
 Because the package uses a `src/` layout, either run tools with the configured project settings or set `PYTHONPATH=src` for direct Python snippets.
@@ -183,23 +188,30 @@ client = PfSenseWebGuiClient(config, transport=transport)
 
 ## Validation
 
-Run the full test suite:
+Run the full local verification gate:
+
+```bash
+make verify
+```
+
+Or run checks individually:
 
 ```bash
 python3 -m pytest -q
-```
-
-Run pylint:
-
-```bash
 PYTHONPATH=src python3 -m pylint src tests
-```
-
-Check for whitespace errors before committing:
-
-```bash
+python3 -m bandit --configfile pyproject.toml --recursive src
+python3 -m pip_audit . --strict
+python3 -m detect_secrets scan --baseline .secrets.baseline --force-use-all-plugins
 git diff --check
 ```
+
+Run all configured pre-commit hooks manually:
+
+```bash
+pre-commit run --all-files
+```
+
+The GitHub Actions CI workflow runs tests, pylint, Bandit, pip-audit, and the detect-secrets baseline on pushes and pull requests.
 
 ## Development workflow
 
@@ -209,8 +221,8 @@ For implementation work, use a strict read-first/TDD workflow:
 2. Run the focused test and confirm it fails for the expected reason.
 3. Implement the minimal read-only code path.
 4. Run focused tests, then the full test suite.
-5. Run pylint and `git diff --check`.
-6. Review the diff for credentials, unsafe shell execution, `eval`/`exec`, pickle usage, and unsafe SQL string formatting.
+5. Run `make verify`, `pre-commit run --all-files`, and `git diff --check`.
+6. Review the diff for credentials, unsafe shell execution, `eval`/`exec`, pickle usage, unsafe SQL string formatting, and unintended pfSense mutation paths.
 7. Commit only after validation is clean.
 
 ## Roadmap

@@ -1,10 +1,25 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "pfsense-mcp-server"
 version = "0.1.0"
 description = "Read-only pfSense MCP server using authenticated WebGUI scraping"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.0,<2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "bandit[toml]>=1.7.10,<2.0",
+    "detect-secrets>=1.5,<2.0",
+    "pip-audit>=2.7,<3.0",
+    "pre-commit>=3.8,<5.0",
+    "pylint>=3.0,<5.0",
+    "pytest>=8.0,<10.0",
 ]
 
 [project.scripts]
@@ -23,3 +38,6 @@ disable = [
     "line-too-long",
     "too-few-public-methods",
 ]
+
+[tool.bandit]
+exclude_dirs = ["tests"]

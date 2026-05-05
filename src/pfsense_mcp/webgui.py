@@ -56,7 +56,11 @@ class UrlLibWebGuiTransport:
         timeout: float = 15.0,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
     ) -> None:
-        context = ssl.create_default_context() if verify_tls else ssl._create_unverified_context()
+        if verify_tls:
+            context = ssl.create_default_context()
+        else:
+            # Explicit opt-in for local pfSense self-signed certificate testing.
+            context = ssl._create_unverified_context()  # nosec B323
         self._opener = build_opener(
             HTTPCookieProcessor(CookieJar()),
             HTTPSHandler(context=context),

@@ -36,16 +36,17 @@ def test_extract_csrf_magic_raises_when_login_page_has_no_token() -> None:
 
 
 def test_build_login_payload_uses_pfsense_webgui_field_names() -> None:
+    field_value = "pw"
     payload = build_login_payload(
         csrf_magic="sid:abc123,1700000000",
         username="readonly-user",
-        password="fixture-credential-value",
+        password=field_value,
     )
 
     assert payload == {
         "__csrf_magic": "sid:abc123,1700000000",
         "usernamefld": "readonly-user",
-        "passwordfld": "fixture-credential-value",
+        "passwordfld": field_value,
         "login": "Sign In",
     }
 
