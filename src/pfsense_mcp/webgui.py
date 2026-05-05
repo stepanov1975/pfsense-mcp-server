@@ -9,6 +9,7 @@ from typing import Protocol
 from urllib.parse import unquote, urlencode, urlparse
 from urllib.request import HTTPCookieProcessor, HTTPSHandler, Request, build_opener
 
+from pfsense_mcp.arp import ArpEntry, parse_arp_table
 from pfsense_mcp.config import PfSenseConfig
 
 
@@ -144,6 +145,10 @@ class PfSenseWebGuiClient:
         if not self._authenticated:
             self.login()
         return self._transport.get(page_url)
+
+    def get_arp_table(self) -> list[ArpEntry]:
+        """Return parsed ARP entries from the read-only WebGUI ARP table page."""
+        return parse_arp_table(self.get_page("/status_arp.php"))
 
     def _build_url(self, path: str) -> str:
         safe_path = _normalize_relative_webgui_path(path)

@@ -2,7 +2,7 @@
 
 import pytest
 
-from pfsense_mcp.config import PfSenseConfig
+from support import LOGIN_FORM_VALUE, dashboard_page, login_page, sample_config
 from pfsense_mcp.webgui import PfSenseWebGuiClient, WebGuiAuthError
 
 
@@ -27,26 +27,9 @@ class FakeWebGuiTransport:
         return self.login_response
 
 
-def config() -> PfSenseConfig:
-    return PfSenseConfig(
-        base_url="https://192.0.2.1:8843",
-        username="readonly-user",
-        password="fixture-credential-value",
-        read_only=True,
-    )
-
-
-def login_page() -> str:
-    return '<form><input name="__csrf_magic" value="sid:csrf-token,1700000000"></form>'
-
-
-def dashboard_page() -> str:
-    return '<html><title>pfSense - Dashboard</title><a href="/index.php?logout">Logout</a></html>'
-
-
 def test_login_gets_csrf_token_then_posts_pfsense_login_form() -> None:
     transport = FakeWebGuiTransport(login_html=login_page(), login_response=dashboard_page())
-    client = PfSenseWebGuiClient(config(), transport=transport)
+    client = PfSenseWebGuiClient(sample_config(), transport=transport)
 
     client.login()
 
@@ -58,7 +41,7 @@ def test_login_gets_csrf_token_then_posts_pfsense_login_form() -> None:
             {
                 "__csrf_magic": "sid:csrf-token,1700000000",
                 "usernamefld": "readonly-user",
-                "passwordfld": "fixture-credential-value",
+                "passwordfld": LOGIN_FORM_VALUE,
                 "login": "Sign In",
             },
         )
@@ -70,7 +53,7 @@ def test_login_raises_and_remains_unauthenticated_when_dashboard_markers_are_abs
         login_html=login_page(),
         login_response="<form><input name='usernamefld'><input name='passwordfld'></form>",
     )
-    client = PfSenseWebGuiClient(config(), transport=transport)
+    client = PfSenseWebGuiClient(sample_config(), transport=transport)
 
     with pytest.raises(WebGuiAuthError, match="login did not reach"):
         client.login()
@@ -84,7 +67,7 @@ def test_get_page_logs_in_once_then_fetches_requested_webgui_path() -> None:
         login_response=dashboard_page(),
         page_response="<html>arp table</html>",
     )
-    client = PfSenseWebGuiClient(config(), transport=transport)
+    client = PfSenseWebGuiClient(sample_config(), transport=transport)
 
     assert client.get_page("/status_arp.php") == "<html>arp table</html>"
     assert client.get_page("status_arp.php") == "<html>arp table</html>"
@@ -99,7 +82,7 @@ def test_get_page_logs_in_once_then_fetches_requested_webgui_path() -> None:
 
 def test_get_page_rejects_absolute_or_parent_paths() -> None:
     transport = FakeWebGuiTransport(login_html=login_page(), login_response=dashboard_page())
-    client = PfSenseWebGuiClient(config(), transport=transport)
+    client = PfSenseWebGuiClient(sample_config(), transport=transport)
 
     with pytest.raises(ValueError, match="relative WebGUI path"):
         client.get_page("https://evil.invalid/status_arp.php")
@@ -110,7 +93,7 @@ def test_get_page_rejects_absolute_or_parent_paths() -> None:
 
 def test_get_page_rejects_unsafe_path_before_login_network_calls() -> None:
     transport = FakeWebGuiTransport(login_html=login_page(), login_response=dashboard_page())
-    client = PfSenseWebGuiClient(config(), transport=transport)
+    client = PfSenseWebGuiClient(sample_config(), transport=transport)
 
     with pytest.raises(ValueError, match="parent directory"):
         client.get_page("%2e%2e/status_arp.php")
