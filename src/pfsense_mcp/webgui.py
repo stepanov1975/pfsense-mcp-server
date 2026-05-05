@@ -187,7 +187,7 @@ class PfSenseWebGuiClient:
 
     def get_arp_table(self) -> list[ArpEntry]:
         """Return parsed ARP entries from the read-only WebGUI ARP table page."""
-        return parse_arp_table(self.get_page("/status_arp.php"))
+        return parse_arp_table(self.get_page("/diag_arp.php"))
 
     def get_dhcp_leases(self) -> list[DhcpLease]:
         """Return parsed DHCP leases from the read-only WebGUI DHCP leases page."""

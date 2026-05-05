@@ -15,7 +15,7 @@ Implemented so far:
 - Authenticated pfSense WebGUI login helpers using pfSense's `__csrf_magic` token.
 - Cookie-preserving WebGUI client transport using Python stdlib `urllib`.
 - Relative-path validation for WebGUI page fetches.
-- Read-only ARP table retrieval and parsing from `/status_arp.php`.
+- Read-only ARP table retrieval and parsing from `/diag_arp.php`.
 - Read-only DHCP lease retrieval and parsing from `/status_dhcp_leases.php`.
 - MCP stdio server entrypoint with read-only login-check, ARP, and DHCP tools.
 - Deterministic pytest coverage for configuration, auth helpers, WebGUI client behavior, ARP parsing, DHCP parsing, and MCP tool handler registration.
@@ -105,7 +105,7 @@ pfsense-mcp-server
 Current read-only MCP tools:
 
 - `pfsense_check_webgui_login` — returns reachability/authentication metadata only: `reachable`, `authenticated`, `base_url_host`, `read_only`, and `error_type` on failure. It never returns exception messages, passwords, cookies, or CSRF tokens.
-- `pfsense_get_arp_table` — returns parsed ARP table entries from `/status_arp.php`; failures return safe `error_type` metadata only.
+- `pfsense_get_arp_table` — returns parsed ARP table entries from `/diag_arp.php`; failures return safe `error_type` metadata only.
 - `pfsense_get_dhcp_leases` — returns parsed DHCP lease entries from `/status_dhcp_leases.php`; failures return safe `error_type` metadata only.
 
 Example Hermes MCP configuration snippet, for review only until explicitly applied:

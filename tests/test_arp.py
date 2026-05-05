@@ -63,7 +63,7 @@ def test_parse_arp_table_extracts_pfsense_rows() -> None:
     ]
 
 
-def test_client_get_arp_table_fetches_status_arp_page() -> None:
+def test_client_get_arp_table_fetches_diag_arp_page() -> None:
     transport = FakeStatusPageTransport(arp_html())
     client = PfSenseWebGuiClient(sample_config(), transport=transport)
 
@@ -72,5 +72,5 @@ def test_client_get_arp_table_fetches_status_arp_page() -> None:
     assert entries[0].ip_address == "192.0.2.10"
     assert transport.get_urls == [
         "https://192.0.2.1:8843/",
-        "https://192.0.2.1:8843/status_arp.php",
+        "https://192.0.2.1:8843/diag_arp.php",
     ]

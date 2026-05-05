@@ -24,7 +24,7 @@ class ArpTableParseError(ValueError):
     """Raised when a pfSense ARP table cannot be found in WebGUI HTML."""
 
 def parse_arp_table(html: str) -> list[ArpEntry]:
-    """Parse pfSense's ``status_arp.php`` HTML into structured ARP entries."""
+    """Parse pfSense's ``diag_arp.php`` HTML into structured ARP entries."""
     for table in parse_html_tables(html):
         entries = _entries_from_table(table)
         if entries is not None:
