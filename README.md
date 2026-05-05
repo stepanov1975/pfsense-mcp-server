@@ -17,11 +17,11 @@ Implemented so far:
 - Relative-path validation for WebGUI page fetches.
 - Read-only ARP table retrieval and parsing from `/status_arp.php`.
 - Read-only DHCP lease retrieval and parsing from `/status_dhcp_leases.php`.
-- Deterministic pytest coverage for configuration, auth helpers, WebGUI client behavior, ARP parsing, and DHCP parsing.
+- MCP stdio server entrypoint with read-only login-check, ARP, and DHCP tools.
+- Deterministic pytest coverage for configuration, auth helpers, WebGUI client behavior, ARP parsing, DHCP parsing, and MCP tool handler registration.
 
 Not implemented yet:
 
-- Final MCP server entrypoint and tool/resource registration.
 - pfSense REST API integration.
 - Interface/VLAN, route/gateway, alias, firewall rule, and NDP read-only tools.
 - Any mutating pfSense action. Mutations are intentionally out of scope unless explicitly approved later.
@@ -40,7 +40,7 @@ This repository is designed for a cautious homelab security workflow.
 ## Requirements
 
 - Python 3.11+
-- No runtime package dependencies at this stage
+- `mcp` Python SDK for the stdio MCP server
 - `pytest` for tests
 - `pylint` for linting
 
@@ -76,9 +76,42 @@ From the repository root:
 python3 -m venv .venv
 . .venv/bin/activate
 python3 -m pip install --upgrade pip pytest pylint
+python3 -m pip install -e .
 ```
 
 Because the package uses a `src/` layout, either run tools with the configured project settings or set `PYTHONPATH=src` for direct Python snippets.
+
+## MCP server
+
+Run the MCP server over stdio:
+
+```bash
+cd /home/alex/repos/pfsense-mcp-server
+python3 -m pfsense_mcp.server
+```
+
+If the project is installed in a virtual environment, the console script is also available:
+
+```bash
+pfsense-mcp-server
+```
+
+Current read-only MCP tools:
+
+- `pfsense_check_webgui_login` — returns reachability/authentication metadata only: `reachable`, `authenticated`, `base_url_host`, `read_only`, and `error_type` on failure. It never returns exception messages, passwords, cookies, or CSRF tokens.
+- `pfsense_get_arp_table` — returns parsed ARP table entries from `/status_arp.php`; failures return safe `error_type` metadata only.
+- `pfsense_get_dhcp_leases` — returns parsed DHCP lease entries from `/status_dhcp_leases.php`; failures return safe `error_type` metadata only.
+
+Example Hermes MCP configuration snippet, for review only until explicitly applied:
+
+```yaml
+mcp_servers:
+  pfsense:
+    command: "/bin/bash"
+    args: ["-lc", "cd /home/alex/repos/pfsense-mcp-server && exec python3 -m pfsense_mcp.server"]
+    timeout: 120
+    connect_timeout: 60
+```
 
 ## Usage examples
 
@@ -170,10 +203,10 @@ For implementation work, use a strict read-first/TDD workflow:
 
 Likely next read-only steps:
 
-- Add the MCP server entrypoint and register current ARP/DHCP read-only capabilities.
 - Add interface and VLAN attribution.
 - Add route and gateway status views.
 - Add aliases and firewall rules as read-only inspection data.
+- Add focused lookup/crosscheck tools for MAC/IP evidence correlation.
 - Add NDP/IPv6 neighbor parsing.
 - Revisit pfSense REST API support if the REST package/path is enabled in the target environment.
 

@@ -3,7 +3,12 @@ name = "pfsense-mcp-server"
 version = "0.1.0"
 description = "Read-only pfSense MCP server using authenticated WebGUI scraping"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "mcp>=1.0",
+]
+
+[project.scripts]
+pfsense-mcp-server = "pfsense_mcp.server:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

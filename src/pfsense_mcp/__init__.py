@@ -6,8 +6,10 @@ __all__ = [
     "ConfigError",
     "DhcpLease",
     "DhcpLeaseParseError",
+    "PfSenseToolHandlers",
     "PfSenseConfig",
     "PfSenseWebGuiClient",
+    "create_mcp_server",
     "load_config",
     "parse_arp_table",
     "parse_dhcp_leases",
@@ -16,4 +18,5 @@ __all__ = [
 from pfsense_mcp.arp import ArpEntry, ArpTableParseError, parse_arp_table
 from pfsense_mcp.config import ConfigError, PfSenseConfig, load_config
 from pfsense_mcp.dhcp import DhcpLease, DhcpLeaseParseError, parse_dhcp_leases
+from pfsense_mcp.server import PfSenseToolHandlers, create_mcp_server
 from pfsense_mcp.webgui import PfSenseWebGuiClient
