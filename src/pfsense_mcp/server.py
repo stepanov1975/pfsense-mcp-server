@@ -33,6 +33,23 @@ class PfSenseClient(Protocol):
     def get_firewall_states(self, *, ip_address: str | None = None, limit: int = 200) -> list[object]:
         """Return read-only firewall state entries."""
 
+    def get_firewall_logs(  # pylint: disable=too-many-arguments
+        self,
+        *,
+        ip_address: str | None = None,
+        action: str | None = None,
+        interface: str | None = None,
+        protocol: str | None = None,
+        limit: int = 200,
+    ) -> list[object]:
+        """Return read-only firewall log entries."""
+
+    def get_firewall_aliases(self) -> list[object]:
+        """Return read-only firewall aliases."""
+
+    def get_firewall_rules(self, *, interface: str | None = None) -> list[object]:
+        """Return read-only firewall rules."""
+
 ConfigLoader = Callable[[], PfSenseConfig]
 ClientFactory = Callable[[PfSenseConfig], PfSenseClient]
 
@@ -103,6 +120,52 @@ class PfSenseToolHandlers:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             return _safe_error(exc)
 
+    def get_firewall_logs(  # pylint: disable=too-many-arguments
+        self,
+        *,
+        ip_address: str | None = None,
+        action: str | None = None,
+        interface: str | None = None,
+        protocol: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, object]] | dict[str, object]:
+        """Return JSON-serializable read-only firewall log entries."""
+        try:
+            config = self._config_loader()
+            client = self._client_factory(config)
+            return [
+                _entry_dict(log)
+                for log in client.get_firewall_logs(
+                    ip_address=ip_address,
+                    action=action,
+                    interface=interface,
+                    protocol=protocol,
+                    limit=limit,
+                )
+            ]
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return _safe_error(exc)
+
+    def get_firewall_aliases(self) -> list[dict[str, object]] | dict[str, object]:
+        """Return JSON-serializable read-only firewall aliases."""
+        try:
+            config = self._config_loader()
+            client = self._client_factory(config)
+            return [_entry_dict(alias) for alias in client.get_firewall_aliases()]
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return _safe_error(exc)
+
+    def get_firewall_rules(
+        self, *, interface: str | None = None
+    ) -> list[dict[str, object]] | dict[str, object]:
+        """Return JSON-serializable read-only firewall rules."""
+        try:
+            config = self._config_loader()
+            client = self._client_factory(config)
+            return [_entry_dict(rule) for rule in client.get_firewall_rules(interface=interface)]
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return _safe_error(exc)
+
 
 def create_mcp_server(*, handlers: PfSenseToolHandlers | None = None) -> FastMCP:
     """Create the stdio-capable FastMCP server with read-only pfSense tools."""
@@ -136,6 +199,35 @@ def create_mcp_server(*, handlers: PfSenseToolHandlers | None = None) -> FastMCP
     ) -> list[dict[str, object]] | dict[str, object]:
         """Return read-only active firewall states, optionally exact-filtered by IP address."""
         return tool_handlers.get_firewall_states(ip_address=ip_address, limit=limit)
+
+    @server.tool(name="pfsense_get_firewall_logs", annotations=READ_ONLY_ANNOTATIONS)
+    def pfsense_get_firewall_logs(
+        ip_address: str | None = None,
+        action: str | None = None,
+        interface: str | None = None,
+        protocol: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, object]] | dict[str, object]:
+        """Return read-only firewall log entries, optionally filtered by exact IP/action/interface/protocol."""
+        return tool_handlers.get_firewall_logs(
+            ip_address=ip_address,
+            action=action,
+            interface=interface,
+            protocol=protocol,
+            limit=limit,
+        )
+
+    @server.tool(name="pfsense_get_firewall_aliases", annotations=READ_ONLY_ANNOTATIONS)
+    def pfsense_get_firewall_aliases() -> list[dict[str, object]] | dict[str, object]:
+        """Return read-only pfSense firewall aliases."""
+        return tool_handlers.get_firewall_aliases()
+
+    @server.tool(name="pfsense_get_firewall_rules", annotations=READ_ONLY_ANNOTATIONS)
+    def pfsense_get_firewall_rules(
+        interface: str | None = None,
+    ) -> list[dict[str, object]] | dict[str, object]:
+        """Return read-only pfSense firewall rules, optionally for one interface tab."""
+        return tool_handlers.get_firewall_rules(interface=interface)
 
     return server
 

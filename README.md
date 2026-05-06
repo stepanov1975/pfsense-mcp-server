@@ -18,13 +18,16 @@ Implemented so far:
 - Read-only ARP table retrieval and parsing from `/diag_arp.php`.
 - Read-only DHCP lease retrieval and parsing from `/status_dhcp_leases.php`.
 - Read-only firewall state retrieval and parsing from `/diag_dump_states.php`, with optional exact-IP filtering and state-kill action links stripped from results.
-- MCP stdio server entrypoint with read-only login-check, ARP, DHCP, and firewall-state tools annotated as non-destructive.
-- Deterministic pytest coverage for configuration, auth helpers, WebGUI client behavior, ARP parsing, DHCP parsing, firewall-state parsing, and MCP tool handler registration.
+- Read-only firewall log retrieval and parsing from `/status_logs_filter.php`, with optional exact-IP/action/interface/protocol filtering and bounded results.
+- Read-only firewall alias retrieval and parsing from `/firewall_aliases.php`, with mutating action links omitted from results.
+- Read-only firewall rule retrieval and parsing from `/firewall_rules.php`, optionally for one interface tab, with mutating action links omitted from results.
+- MCP stdio server entrypoint with read-only login-check, ARP, DHCP, firewall-state, firewall-log, firewall-alias, and firewall-rule tools annotated as non-destructive.
+- Deterministic pytest coverage for configuration, auth helpers, WebGUI client behavior, ARP parsing, DHCP parsing, firewall-state parsing, firewall inspection parsing, and MCP tool handler registration.
 
 Not implemented yet:
 
 - pfSense REST API integration.
-- Interface/VLAN, route/gateway, alias, firewall rule, and NDP read-only tools.
+- Interface/VLAN, route/gateway, and NDP read-only tools.
 - Any mutating pfSense action. Mutations are intentionally out of scope unless explicitly approved later.
 
 ## Safety model
@@ -36,6 +39,7 @@ This repository is designed for a cautious homelab security workflow.
 - Do not commit real pfSense credentials, API keys, cookies, CSRF tokens, or exported configs containing secrets.
 - WebGUI requests are limited to relative paths and reject absolute URLs and parent-directory traversal.
 - Firewall state inspection is read-only: parser output omits WebGUI state-kill action links, validates optional IP filters as single IP addresses, and caps returned states.
+- Firewall log/rule/alias inspection is read-only: parser output omits WebGUI action URLs and labels that would enable mutation, validates optional filters before WebGUI fetches where applicable, and caps returned log entries.
 - MCP tools are annotated with `readOnlyHint=True` and `destructiveHint=False` for compatible clients.
 - TLS verification is enabled by default. Disable it only deliberately for local/self-signed homelab testing.
 - MCP stdout should remain clean JSON-RPC when the MCP server entrypoint is added; diagnostics should go to stderr.
@@ -116,6 +120,9 @@ Current read-only MCP tools:
 - `pfsense_get_arp_table` — returns parsed ARP table entries from `/diag_arp.php`; failures return safe `error_type` metadata only.
 - `pfsense_get_dhcp_leases` — returns parsed DHCP lease entries from `/status_dhcp_leases.php`; failures return safe `error_type` metadata only.
 - `pfsense_get_firewall_states` — returns parsed active firewall states from `/diag_dump_states.php`, optionally exact-filtered by `ip_address` and capped by `limit` (max 200); action links for killing states are never returned.
+- `pfsense_get_firewall_logs` — returns parsed firewall log entries from `/status_logs_filter.php`, optionally filtered by exact `ip_address`, `action` (`pass`, `block`, `reject`), `interface`, and protocol prefix; returned entries are capped by `limit` (max 200).
+- `pfsense_get_firewall_aliases` — returns parsed firewall aliases from `/firewall_aliases.php`; action links for editing/copying/deleting aliases are never returned.
+- `pfsense_get_firewall_rules` — returns parsed firewall rules from `/firewall_rules.php`, optionally for one safe interface token; action links for editing/toggling/deleting rules are never returned.
 
 Example Hermes MCP configuration snippet, for review only until explicitly applied:
 
@@ -172,6 +179,9 @@ client = PfSenseWebGuiClient(config)
 arp_entries = client.get_arp_table()
 dhcp_leases = client.get_dhcp_leases()
 matching_states = client.get_firewall_states(ip_address="192.168.1.202", limit=25)
+blocked_logs = client.get_firewall_logs(action="block", limit=25)
+aliases = client.get_firewall_aliases()
+wan_rules = client.get_firewall_rules(interface="wan")
 ```
 
 For self-signed local pfSense certificates, prefer the `.env` setting below only when you understand the MITM risk:
@@ -236,7 +246,6 @@ Likely next read-only steps:
 
 - Add interface and VLAN attribution.
 - Add route and gateway status views.
-- Add firewall logs, aliases, and firewall rules as read-only inspection data.
 - Add focused lookup/crosscheck tools for MAC/IP evidence correlation.
 - Add NDP/IPv6 neighbor parsing.
 - Revisit pfSense REST API support if the REST package/path is enabled in the target environment.
