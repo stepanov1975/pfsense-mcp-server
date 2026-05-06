@@ -143,7 +143,8 @@ def parse_firewall_aliases(html: str) -> list[FirewallAliasEntry]:
         found_table = True
         for row in text_table[header_index + 1 :]:
             name = value_at(row, indexes.get("name"))
-            alias_type = value_at(row, indexes.get("entry_type") or indexes.get("type"))
+            alias_type_index = indexes["entry_type"] if "entry_type" in indexes else indexes.get("type")
+            alias_type = value_at(row, alias_type_index)
             if not name or not alias_type:
                 continue
             aliases.append(
@@ -178,33 +179,49 @@ def parse_firewall_rules(html: str, *, interface: str | None = None) -> list[Fir
             continue
         found_table = True
         indexes = header_indexes(text_table[header_index])
-        source_index = indexes.get("source")
-        destination_index = indexes.get("destination")
+        header = text_table[header_index]
         for row in table[header_index + 1 :]:
-            text_row = [cell.text for cell in row]
-            if not any(text_row):
-                continue
-            rules.append(
-                FirewallRuleEntry(
-                    index=len(rules),
-                    interface=normalized_interface,
-                    enabled=_infer_rule_enabled(row),
-                    states=value_at(text_row, indexes.get("states")),
-                    protocol=value_at(text_row, indexes.get("protocol")),
-                    source=value_at(text_row, source_index),
-                    source_port=value_at(text_row, _port_after(text_table[header_index], source_index)),
-                    destination=value_at(text_row, destination_index),
-                    destination_port=value_at(text_row, _port_after(text_table[header_index], destination_index)),
-                    gateway=value_at(text_row, indexes.get("gateway")),
-                    queue=value_at(text_row, indexes.get("queue")),
-                    schedule=value_at(text_row, indexes.get("schedule")),
-                    description=value_at(text_row, indexes.get("description")),
-                )
-            )
+            entry = _parse_rule_row(row, indexes, header, normalized_interface, len(rules))
+            if entry is not None:
+                rules.append(entry)
 
     if not found_table:
         raise FirewallRuleParseError("Could not find pfSense firewall rule table")
     return rules
+
+
+def _parse_rule_row(
+    row: list[HtmlCell],
+    indexes: dict[str, int],
+    header: list[str],
+    interface: str | None,
+    index: int,
+) -> FirewallRuleEntry | None:
+    text_row = [cell.text for cell in row]
+    if not any(text_row):
+        return None
+    source_index = indexes.get("source")
+    destination_index = indexes.get("destination")
+    protocol = value_at(text_row, indexes.get("protocol"))
+    source = value_at(text_row, source_index)
+    destination = value_at(text_row, destination_index)
+    if not protocol or not source or not destination:
+        return None
+    return FirewallRuleEntry(
+        index=index,
+        interface=interface,
+        enabled=_infer_rule_enabled(row),
+        states=value_at(text_row, indexes.get("states")),
+        protocol=protocol,
+        source=source,
+        source_port=value_at(text_row, _port_after(header, source_index)),
+        destination=destination,
+        destination_port=value_at(text_row, _port_after(header, destination_index)),
+        gateway=value_at(text_row, indexes.get("gateway")),
+        queue=value_at(text_row, indexes.get("queue")),
+        schedule=value_at(text_row, indexes.get("schedule")),
+        description=value_at(text_row, indexes.get("description")),
+    )
 
 
 def normalize_firewall_log_filter_ip(ip_address: str | None) -> str | None:
@@ -324,10 +341,13 @@ def _infer_rule_enabled(row: list[HtmlCell]) -> bool | None:
     if not row:
         return None
     action_titles = tuple(title.lower() for title in row[-1].titles)
-    if any(title == "disable" for title in action_titles):
-        return True
-    if any(title == "enable" for title in action_titles):
-        return False
+    for title in action_titles:
+        has_disable = "disable" in title
+        has_enable = "enable" in title
+        if has_disable and not has_enable:
+            return True
+        if has_enable and not has_disable:
+            return False
     return None
 
 

@@ -133,6 +133,21 @@ def test_parse_firewall_aliases_missing_table_raises() -> None:
         parse_firewall_aliases("<table><tr><th>Name</th><th>Something Else</th></tr></table>")
 
 
+def test_parse_firewall_aliases_handles_type_column_at_index_zero() -> None:
+    aliases = parse_firewall_aliases(
+        """
+        <table>
+          <tr><th>Type</th><th>Name</th><th>Values</th><th>Description</th></tr>
+          <tr><td>Host(s)</td><td>trusted_hosts</td><td>192.0.2.10</td><td>Trusted hosts</td></tr>
+        </table>
+        """
+    )
+
+    assert len(aliases) == 1
+    assert aliases[0].name == "trusted_hosts"
+    assert aliases[0].alias_type == "Host(s)"
+
+
 def test_parse_firewall_rules_returns_ordered_rules_without_mutating_actions() -> None:
     rules = parse_firewall_rules(FIREWALL_RULES_HTML, interface="wan")
 
@@ -155,3 +170,40 @@ def test_parse_firewall_rules_returns_ordered_rules_without_mutating_actions() -
 def test_parse_firewall_rules_missing_table_raises() -> None:
     with pytest.raises(FirewallRuleParseError):
         parse_firewall_rules("<table><tr><th>Protocol</th><th>Only</th></tr></table>")
+
+
+def test_parse_firewall_rules_skips_separator_rows() -> None:
+    rules = parse_firewall_rules(
+        """
+        <table>
+          <tr><th>States</th><th>Protocol</th><th>Source</th><th>Destination</th><th>Actions</th></tr>
+          <tr><td colspan="5">WAN rules</td></tr>
+          <tr><td>1/2 KiB</td><td>IPv4 TCP</td><td>trusted_hosts</td><td>WAN address</td><td></td></tr>
+        </table>
+        """
+    )
+
+    assert len(rules) == 1
+    assert rules[0].protocol == "IPv4 TCP"
+    assert rules[0].source == "trusted_hosts"
+
+
+def test_parse_firewall_rules_infers_enabled_from_descriptive_action_titles() -> None:
+    rules = parse_firewall_rules(
+        """
+        <table>
+          <tr><th>States</th><th>Protocol</th><th>Source</th><th>Destination</th><th>Actions</th></tr>
+          <tr>
+            <td>1/2 KiB</td><td>IPv4 TCP</td><td>trusted_hosts</td><td>WAN address</td>
+            <td><a title="Disable this rule" href="firewall_rules.php?act=toggle">disable</a></td>
+          </tr>
+          <tr>
+            <td>0/0 B</td><td>IPv4 TCP</td><td>*</td><td>LAN address</td>
+            <td><a title="Enable this rule" href="firewall_rules.php?act=toggle">enable</a></td>
+          </tr>
+        </table>
+        """
+    )
+
+    assert rules[0].enabled is True
+    assert rules[1].enabled is False
