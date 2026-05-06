@@ -21,8 +21,9 @@ Implemented so far:
 - Read-only firewall log retrieval and parsing from `/status_logs_filter.php`, with optional exact-IP/action/interface/protocol filtering and bounded results.
 - Read-only firewall alias retrieval and parsing from `/firewall_aliases.php`, with mutating action links omitted from results.
 - Read-only firewall rule retrieval and parsing from `/firewall_rules.php`, optionally for one interface tab, with mutating action links omitted from results.
-- MCP stdio server entrypoint with read-only login-check, ARP, DHCP, firewall-state, firewall-log, firewall-alias, and firewall-rule tools annotated as non-destructive.
-- Deterministic pytest coverage for configuration, auth helpers, WebGUI client behavior, ARP parsing, DHCP parsing, firewall-state parsing, firewall inspection parsing, and MCP tool handler registration.
+- Passive read-only troubleshooting reports that correlate ARP, DHCP, firewall states/logs, aliases, and rules without active probes or configuration changes.
+- MCP stdio server entrypoint with read-only login-check, ARP, DHCP, firewall-state, firewall-log, firewall-alias, firewall-rule, host-diagnosis, and health-report tools annotated as non-destructive.
+- Deterministic pytest coverage for configuration, auth helpers, WebGUI client behavior, ARP parsing, DHCP parsing, firewall-state parsing, firewall inspection parsing, passive troubleshooting, and MCP tool handler registration.
 
 Not implemented yet:
 
@@ -123,6 +124,8 @@ Current read-only MCP tools:
 - `pfsense_get_firewall_logs` — returns parsed firewall log entries from `/status_logs_filter.php`, optionally filtered by exact `ip_address`, `action` (`pass`, `block`, `reject`), `interface`, and protocol prefix; returned entries are capped by `limit` (max 200).
 - `pfsense_get_firewall_aliases` — returns parsed firewall aliases from `/firewall_aliases.php`; action links for editing/copying/deleting aliases are never returned.
 - `pfsense_get_firewall_rules` — returns parsed firewall rules from `/firewall_rules.php`, optionally for one safe interface token; action links for editing/toggling/deleting rules are never returned.
+- `pfsense_diagnose_host` — correlates passive evidence for one exact IP address across ARP, DHCP leases, active firewall states, recent firewall logs, aliases, and candidate firewall rules. Optional `destination_port` and `protocol` narrow log/rule evidence. It does not ping, run traceroute, perform DNS lookups, or change pfSense state.
+- `pfsense_get_health_report` — returns a passive health summary from the available WebGUI pages: ARP/DHCP counts, active state count, recent firewall log counts, block/reject count, alias/rule counts, disabled-rule count, per-component collection status, and active checks that were intentionally not performed.
 
 Example Hermes MCP configuration snippet, for review only until explicitly applied:
 
@@ -182,6 +185,25 @@ matching_states = client.get_firewall_states(ip_address="192.168.1.202", limit=2
 blocked_logs = client.get_firewall_logs(action="block", limit=25)
 aliases = client.get_firewall_aliases()
 wan_rules = client.get_firewall_rules(interface="wan")
+```
+
+Build a passive troubleshooting report from already-collected data:
+
+```python
+from pfsense_mcp.troubleshooting import diagnose_host
+
+host_report = diagnose_host(
+    "192.168.1.202",
+    arp_entries=arp_entries,
+    dhcp_leases=dhcp_leases,
+    firewall_states=matching_states,
+    firewall_logs=blocked_logs,
+    firewall_aliases=aliases,
+    firewall_rules=wan_rules,
+    destination_port="443",
+    protocol="tcp",
+)
+print(host_report["status"], host_report["issues"])
 ```
 
 For self-signed local pfSense certificates, prefer the `.env` setting below only when you understand the MITM risk:
@@ -246,13 +268,9 @@ Likely next read-only steps:
 
 - Add interface and VLAN attribution.
 - Add route and gateway status views.
-- Add focused lookup/crosscheck tools for MAC/IP evidence correlation.
+- Add passive DNS resolver/forwarder, VPN status, and CARP/HA status views where safe WebGUI pages are available.
 - Add NDP/IPv6 neighbor parsing.
 - Revisit pfSense REST API support if the REST package/path is enabled in the target environment.
-
-## Acknowledgments
-
-This project was informed by reviewing [`gensecaihq/pfsense-mcp-server`](https://github.com/gensecaihq/pfsense-mcp-server) as a reference implementation for pfSense MCP concepts.
 
 ## Repository
 

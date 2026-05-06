@@ -20,6 +20,7 @@ __all__ = [
     "create_mcp_server",
     "load_config",
     "normalize_firewall_state_ip_filter",
+    "normalize_troubleshoot_ip",
     "parse_arp_table",
     "parse_dhcp_leases",
     "parse_firewall_aliases",
@@ -49,4 +50,5 @@ from pfsense_mcp.firewall_states import (
     parse_firewall_states,
 )
 from pfsense_mcp.server import PfSenseToolHandlers, create_mcp_server
+from pfsense_mcp.troubleshooting import normalize_troubleshoot_ip
 from pfsense_mcp.webgui import PfSenseWebGuiClient
