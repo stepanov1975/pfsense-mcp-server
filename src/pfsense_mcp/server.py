@@ -7,9 +7,13 @@ from typing import Callable, Protocol
 from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from pfsense_mcp.config import PfSenseConfig, load_config
 from pfsense_mcp.webgui import PfSenseWebGuiClient
+
+
+READ_ONLY_ANNOTATIONS = ToolAnnotations(readOnlyHint=True, destructiveHint=False)
 
 
 class PfSenseClient(Protocol):
@@ -26,6 +30,8 @@ class PfSenseClient(Protocol):
     def get_dhcp_leases(self) -> list[object]:
         """Return read-only DHCP leases."""
 
+    def get_firewall_states(self, *, ip_address: str | None = None, limit: int = 200) -> list[object]:
+        """Return read-only firewall state entries."""
 
 ConfigLoader = Callable[[], PfSenseConfig]
 ClientFactory = Callable[[PfSenseConfig], PfSenseClient]
@@ -83,29 +89,53 @@ class PfSenseToolHandlers:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             return _safe_error(exc)
 
+    def get_firewall_states(
+        self, *, ip_address: str | None = None, limit: int = 200
+    ) -> list[dict[str, object]] | dict[str, object]:
+        """Return JSON-serializable read-only firewall state entries."""
+        try:
+            config = self._config_loader()
+            client = self._client_factory(config)
+            return [
+                _entry_dict(state)
+                for state in client.get_firewall_states(ip_address=ip_address, limit=limit)
+            ]
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return _safe_error(exc)
+
 
 def create_mcp_server(*, handlers: PfSenseToolHandlers | None = None) -> FastMCP:
     """Create the stdio-capable FastMCP server with read-only pfSense tools."""
     tool_handlers = handlers or PfSenseToolHandlers()
     server = FastMCP(
         "pfsense-mcp-server",
-        instructions="Read-only pfSense WebGUI inspection tools. No mutation tools are exposed.",
+        instructions=(
+            "Read-only pfSense WebGUI inspection tools. No mutation tools are exposed. "
+            "Firewall state inspection uses the diagnostics page and strips state-kill actions."
+        ),
     )
 
-    @server.tool(name="pfsense_check_webgui_login")
+    @server.tool(name="pfsense_check_webgui_login", annotations=READ_ONLY_ANNOTATIONS)
     def pfsense_check_webgui_login() -> dict[str, object]:
         """Check pfSense WebGUI reachability/authentication without returning secrets."""
         return tool_handlers.check_webgui_login()
 
-    @server.tool(name="pfsense_get_arp_table")
+    @server.tool(name="pfsense_get_arp_table", annotations=READ_ONLY_ANNOTATIONS)
     def pfsense_get_arp_table() -> list[dict[str, object]] | dict[str, object]:
         """Return the read-only pfSense ARP table."""
         return tool_handlers.get_arp_table()
 
-    @server.tool(name="pfsense_get_dhcp_leases")
+    @server.tool(name="pfsense_get_dhcp_leases", annotations=READ_ONLY_ANNOTATIONS)
     def pfsense_get_dhcp_leases() -> list[dict[str, object]] | dict[str, object]:
         """Return read-only pfSense DHCP leases."""
         return tool_handlers.get_dhcp_leases()
+
+    @server.tool(name="pfsense_get_firewall_states", annotations=READ_ONLY_ANNOTATIONS)
+    def pfsense_get_firewall_states(
+        ip_address: str | None = None, limit: int = 200
+    ) -> list[dict[str, object]] | dict[str, object]:
+        """Return read-only active firewall states, optionally exact-filtered by IP address."""
+        return tool_handlers.get_firewall_states(ip_address=ip_address, limit=limit)
 
     return server
 
