@@ -6,6 +6,7 @@ from support import LOGIN_FORM_VALUE, sample_config
 from pfsense_mcp.arp import ArpEntry
 from pfsense_mcp.config import PfSenseConfig
 from pfsense_mcp.dhcp import DhcpLease
+from pfsense_mcp.firewall_states import FirewallStateEntry
 from pfsense_mcp.server import PfSenseToolHandlers, create_mcp_server
 
 
@@ -48,6 +49,24 @@ class FakePfSenseClient:
             )
         ]
 
+    def get_firewall_states(self, ip_address: str | None = None, limit: int = 200) -> list[FirewallStateEntry]:
+        assert ip_address is None
+        assert limit == 200
+        return [
+            FirewallStateEntry(
+                interface="LAN",
+                protocol="tcp",
+                source="192.0.2.10:35898",
+                destination="198.51.100.20:443",
+                state="ESTABLISHED:ESTABLISHED",
+                packets="4.224K / 4.343K",
+                bytes="372 KiB / 537 KiB",
+                original_source=None,
+                original_destination=None,
+                ip_addresses=("192.0.2.10", "198.51.100.20"),
+            )
+        ]
+
 
 class FailingPfSenseClient(FakePfSenseClient):
     """Fake client that raises a secret-bearing error to verify redaction boundaries."""
@@ -68,6 +87,12 @@ class FailingDhcpPfSenseClient(FakePfSenseClient):
 
     def get_dhcp_leases(self) -> list[DhcpLease]:
         raise RuntimeError(f"DHCP failed with {self.config.password}")
+
+class FailingFirewallStatesPfSenseClient(FakePfSenseClient):
+    """Fake client that raises a secret-bearing firewall-state retrieval error."""
+
+    def get_firewall_states(self, ip_address: str | None = None, limit: int = 200) -> list[FirewallStateEntry]:
+        raise RuntimeError(f"state failed with {self.config.password} {ip_address} {limit}")
 
 
 def _handlers(client_type: type[FakePfSenseClient] = FakePfSenseClient) -> PfSenseToolHandlers:
@@ -149,6 +174,53 @@ def test_get_dhcp_leases_redacts_retrieval_errors() -> None:
     assert LOGIN_FORM_VALUE not in repr(result)
 
 
+def test_get_firewall_states_returns_json_serializable_entries() -> None:
+    result = _handlers().get_firewall_states()
+
+    assert result == [
+        {
+            "interface": "LAN",
+            "protocol": "tcp",
+            "source": "192.0.2.10:35898",
+            "destination": "198.51.100.20:443",
+            "state": "ESTABLISHED:ESTABLISHED",
+            "packets": "4.224K / 4.343K",
+            "bytes": "372 KiB / 537 KiB",
+            "original_source": None,
+            "original_destination": None,
+            "ip_addresses": ("192.0.2.10", "198.51.100.20"),
+        }
+    ]
+
+
+def test_get_firewall_states_forwards_exact_ip_filter_and_limit() -> None:
+    class CapturingFirewallStatesClient(FakePfSenseClient):
+        """Fake client that records firewall-state filter arguments."""
+
+        captured: dict[str, object] = {}
+
+        def get_firewall_states(
+            self, ip_address: str | None = None, limit: int = 200
+        ) -> list[FirewallStateEntry]:
+            self.captured["ip_address"] = ip_address
+            self.captured["limit"] = limit
+            return []
+
+    result = _handlers(CapturingFirewallStatesClient).get_firewall_states(
+        ip_address="192.0.2.10", limit=25
+    )
+
+    assert result == []
+    assert CapturingFirewallStatesClient.captured == {"ip_address": "192.0.2.10", "limit": 25}
+
+
+def test_get_firewall_states_redacts_retrieval_errors() -> None:
+    result = _handlers(FailingFirewallStatesPfSenseClient).get_firewall_states(ip_address="192.0.2.10")
+
+    assert result == {"error_type": "RuntimeError"}
+    assert LOGIN_FORM_VALUE not in repr(result)
+
+
 def test_create_mcp_server_registers_read_only_tools() -> None:
     server = create_mcp_server(handlers=_handlers())
 
@@ -158,4 +230,7 @@ def test_create_mcp_server_registers_read_only_tools() -> None:
         "pfsense_check_webgui_login",
         "pfsense_get_arp_table",
         "pfsense_get_dhcp_leases",
+        "pfsense_get_firewall_states",
     ]
+    assert all(tool.annotations.readOnlyHint is True for tool in tools)
+    assert all(tool.annotations.destructiveHint is False for tool in tools)

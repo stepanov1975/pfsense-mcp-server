@@ -17,8 +17,9 @@ Implemented so far:
 - Relative-path validation for WebGUI page fetches.
 - Read-only ARP table retrieval and parsing from `/diag_arp.php`.
 - Read-only DHCP lease retrieval and parsing from `/status_dhcp_leases.php`.
-- MCP stdio server entrypoint with read-only login-check, ARP, and DHCP tools.
-- Deterministic pytest coverage for configuration, auth helpers, WebGUI client behavior, ARP parsing, DHCP parsing, and MCP tool handler registration.
+- Read-only firewall state retrieval and parsing from `/diag_dump_states.php`, with optional exact-IP filtering and state-kill action links stripped from results.
+- MCP stdio server entrypoint with read-only login-check, ARP, DHCP, and firewall-state tools annotated as non-destructive.
+- Deterministic pytest coverage for configuration, auth helpers, WebGUI client behavior, ARP parsing, DHCP parsing, firewall-state parsing, and MCP tool handler registration.
 
 Not implemented yet:
 
@@ -34,6 +35,8 @@ This repository is designed for a cautious homelab security workflow.
 - Local secrets belong only in `.env`, which is gitignored.
 - Do not commit real pfSense credentials, API keys, cookies, CSRF tokens, or exported configs containing secrets.
 - WebGUI requests are limited to relative paths and reject absolute URLs and parent-directory traversal.
+- Firewall state inspection is read-only: parser output omits WebGUI state-kill action links, validates optional IP filters as single IP addresses, and caps returned states.
+- MCP tools are annotated with `readOnlyHint=True` and `destructiveHint=False` for compatible clients.
 - TLS verification is enabled by default. Disable it only deliberately for local/self-signed homelab testing.
 - MCP stdout should remain clean JSON-RPC when the MCP server entrypoint is added; diagnostics should go to stderr.
 
@@ -112,6 +115,7 @@ Current read-only MCP tools:
 - `pfsense_check_webgui_login` — returns reachability/authentication metadata only: `reachable`, `authenticated`, `base_url_host`, `read_only`, and `error_type` on failure. It never returns exception messages, passwords, cookies, or CSRF tokens.
 - `pfsense_get_arp_table` — returns parsed ARP table entries from `/diag_arp.php`; failures return safe `error_type` metadata only.
 - `pfsense_get_dhcp_leases` — returns parsed DHCP lease entries from `/status_dhcp_leases.php`; failures return safe `error_type` metadata only.
+- `pfsense_get_firewall_states` — returns parsed active firewall states from `/diag_dump_states.php`, optionally exact-filtered by `ip_address` and capped by `limit` (max 200); action links for killing states are never returned.
 
 Example Hermes MCP configuration snippet, for review only until explicitly applied:
 
@@ -167,6 +171,7 @@ client = PfSenseWebGuiClient(config)
 
 arp_entries = client.get_arp_table()
 dhcp_leases = client.get_dhcp_leases()
+matching_states = client.get_firewall_states(ip_address="192.168.1.202", limit=25)
 ```
 
 For self-signed local pfSense certificates, prefer the `.env` setting below only when you understand the MITM risk:
@@ -231,10 +236,14 @@ Likely next read-only steps:
 
 - Add interface and VLAN attribution.
 - Add route and gateway status views.
-- Add aliases and firewall rules as read-only inspection data.
+- Add firewall logs, aliases, and firewall rules as read-only inspection data.
 - Add focused lookup/crosscheck tools for MAC/IP evidence correlation.
 - Add NDP/IPv6 neighbor parsing.
 - Revisit pfSense REST API support if the REST package/path is enabled in the target environment.
+
+## Acknowledgments
+
+This project was informed by reviewing [`gensecaihq/pfsense-mcp-server`](https://github.com/gensecaihq/pfsense-mcp-server) as a reference implementation for pfSense MCP concepts.
 
 ## Repository
 

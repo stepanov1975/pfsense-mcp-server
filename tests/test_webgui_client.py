@@ -90,6 +90,36 @@ def test_get_page_logs_in_once_then_fetches_requested_webgui_path() -> None:
     assert len(transport.posted_forms) == 1
 
 
+def test_get_firewall_states_uses_diagnostics_page_with_safe_exact_ip_query() -> None:
+    transport = FakeWebGuiTransport(
+        login_html=login_page(),
+        login_response=dashboard_page(),
+        page_response="""
+        <table>
+          <tr><th>Interface</th><th>Protocol</th><th>Source -&gt; Destination</th><th>State</th><th>Packets</th><th>Bytes</th><th></th></tr>
+          <tr><td>LAN</td><td>tcp</td><td>192.0.2.10:123 -&gt; 198.51.100.20:443</td><td>ESTABLISHED:ESTABLISHED</td><td>1 / 1</td><td>1 KiB / 1 KiB</td><td></td></tr>
+        </table>
+        """,
+    )
+    client = PfSenseWebGuiClient(sample_config(), transport=transport)
+
+    states = client.get_firewall_states(ip_address=" 192.0.2.10 ", limit=10)
+
+    assert len(states) == 1
+    assert transport.get_urls[-1] == "https://192.0.2.1:8843/diag_dump_states.php?filter=192.0.2.10"
+
+
+def test_get_firewall_states_rejects_invalid_ip_filter_before_login_network_calls() -> None:
+    transport = FakeWebGuiTransport(login_html=login_page(), login_response=dashboard_page())
+    client = PfSenseWebGuiClient(sample_config(), transport=transport)
+
+    with pytest.raises(ValueError, match="IPv4"):
+        client.get_firewall_states(ip_address="192.0.2.10; rm -rf /")
+
+    assert not transport.get_urls
+    assert not transport.posted_forms
+
+
 def test_get_page_rejects_absolute_or_parent_paths() -> None:
     transport = FakeWebGuiTransport(login_html=login_page(), login_response=dashboard_page())
     client = PfSenseWebGuiClient(sample_config(), transport=transport)

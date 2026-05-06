@@ -12,6 +12,11 @@ from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, HTTPSHandle
 from pfsense_mcp.arp import ArpEntry, parse_arp_table
 from pfsense_mcp.config import PfSenseConfig
 from pfsense_mcp.dhcp import DhcpLease, parse_dhcp_leases
+from pfsense_mcp.firewall_states import (
+    FirewallStateEntry,
+    normalize_firewall_state_ip_filter,
+    parse_firewall_states,
+)
 
 
 class WebGuiAuthError(ValueError):
@@ -196,6 +201,16 @@ class PfSenseWebGuiClient:
     def get_dhcp_leases(self) -> list[DhcpLease]:
         """Return parsed DHCP leases from the read-only WebGUI DHCP leases page."""
         return parse_dhcp_leases(self.get_page("/status_dhcp_leases.php"))
+
+    def get_firewall_states(
+        self, *, ip_address: str | None = None, limit: int = 200
+    ) -> list[FirewallStateEntry]:
+        """Return parsed read-only firewall states from the WebGUI diagnostics page."""
+        normalized_ip = normalize_firewall_state_ip_filter(ip_address)
+        path = "/diag_dump_states.php"
+        if normalized_ip:
+            path = f"{path}?{urlencode({'filter': normalized_ip})}"
+        return parse_firewall_states(self.get_page(path), ip_address=normalized_ip, limit=limit)
 
     def _build_url(self, path: str) -> str:
         safe_path = _normalize_relative_webgui_path(path)
