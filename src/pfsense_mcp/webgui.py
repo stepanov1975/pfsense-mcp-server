@@ -12,6 +12,17 @@ from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, HTTPSHandle
 from pfsense_mcp.arp import ArpEntry, parse_arp_table
 from pfsense_mcp.config import PfSenseConfig
 from pfsense_mcp.dhcp import DhcpLease, parse_dhcp_leases
+from pfsense_mcp.firewall_inspection import (
+    FirewallAliasEntry,
+    FirewallLogEntry,
+    FirewallRuleEntry,
+    normalize_firewall_log_action_filter,
+    normalize_firewall_log_filter_ip,
+    normalize_firewall_rule_interface,
+    parse_firewall_aliases,
+    parse_firewall_logs,
+    parse_firewall_rules,
+)
 from pfsense_mcp.firewall_states import (
     FirewallStateEntry,
     normalize_firewall_state_ip_filter,
@@ -211,6 +222,39 @@ class PfSenseWebGuiClient:
         if normalized_ip:
             path = f"{path}?{urlencode({'filter': normalized_ip})}"
         return parse_firewall_states(self.get_page(path), ip_address=normalized_ip, limit=limit)
+
+    def get_firewall_logs(  # pylint: disable=too-many-arguments
+        self,
+        *,
+        ip_address: str | None = None,
+        action: str | None = None,
+        interface: str | None = None,
+        protocol: str | None = None,
+        limit: int = 200,
+    ) -> list[FirewallLogEntry]:
+        """Return parsed read-only firewall logs from the WebGUI filter log page."""
+        normalized_ip = normalize_firewall_log_filter_ip(ip_address)
+        normalized_action = normalize_firewall_log_action_filter(action)
+        return parse_firewall_logs(
+            self.get_page("/status_logs_filter.php"),
+            ip_address=normalized_ip,
+            action=normalized_action,
+            interface=interface,
+            protocol=protocol,
+            limit=limit,
+        )
+
+    def get_firewall_aliases(self) -> list[FirewallAliasEntry]:
+        """Return parsed read-only firewall aliases from the WebGUI aliases page."""
+        return parse_firewall_aliases(self.get_page("/firewall_aliases.php"))
+
+    def get_firewall_rules(self, *, interface: str | None = None) -> list[FirewallRuleEntry]:
+        """Return parsed read-only firewall rules from the WebGUI rules page."""
+        normalized_interface = normalize_firewall_rule_interface(interface)
+        path = "/firewall_rules.php"
+        if normalized_interface:
+            path = f"{path}?{urlencode({'if': normalized_interface})}"
+        return parse_firewall_rules(self.get_page(path), interface=normalized_interface)
 
     def _build_url(self, path: str) -> str:
         safe_path = _normalize_relative_webgui_path(path)

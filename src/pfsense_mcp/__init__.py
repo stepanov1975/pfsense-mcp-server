@@ -6,6 +6,12 @@ __all__ = [
     "ConfigError",
     "DhcpLease",
     "DhcpLeaseParseError",
+    "FirewallAliasEntry",
+    "FirewallAliasParseError",
+    "FirewallLogEntry",
+    "FirewallLogParseError",
+    "FirewallRuleEntry",
+    "FirewallRuleParseError",
     "FirewallStateEntry",
     "FirewallStateParseError",
     "PfSenseToolHandlers",
@@ -16,12 +22,26 @@ __all__ = [
     "normalize_firewall_state_ip_filter",
     "parse_arp_table",
     "parse_dhcp_leases",
+    "parse_firewall_aliases",
+    "parse_firewall_logs",
+    "parse_firewall_rules",
     "parse_firewall_states",
 ]
 
 from pfsense_mcp.arp import ArpEntry, ArpTableParseError, parse_arp_table
 from pfsense_mcp.config import ConfigError, PfSenseConfig, load_config
 from pfsense_mcp.dhcp import DhcpLease, DhcpLeaseParseError, parse_dhcp_leases
+from pfsense_mcp.firewall_inspection import (
+    FirewallAliasEntry,
+    FirewallAliasParseError,
+    FirewallLogEntry,
+    FirewallLogParseError,
+    FirewallRuleEntry,
+    FirewallRuleParseError,
+    parse_firewall_aliases,
+    parse_firewall_logs,
+    parse_firewall_rules,
+)
 from pfsense_mcp.firewall_states import (
     FirewallStateEntry,
     FirewallStateParseError,

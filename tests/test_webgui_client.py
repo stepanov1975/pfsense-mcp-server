@@ -120,6 +120,88 @@ def test_get_firewall_states_rejects_invalid_ip_filter_before_login_network_call
     assert not transport.posted_forms
 
 
+def test_get_firewall_logs_fetches_filter_log_page_and_filters_after_validation() -> None:
+    transport = FakeWebGuiTransport(
+        login_html=login_page(),
+        login_response=dashboard_page(),
+        page_response="""
+        <table>
+          <tr><th>Action</th><th>Time</th><th>Interface</th><th>Rule</th><th>Source</th><th>Destination</th><th>Protocol</th></tr>
+          <tr><td><i title="block"></i></td><td>May 6 17:08:57</td><td>WAN</td><td>Default deny</td><td>198.51.100.25:55523</td><td>192.0.2.10:443</td><td>TCP:S</td></tr>
+        </table>
+        """,
+    )
+    client = PfSenseWebGuiClient(sample_config(), transport=transport)
+
+    logs = client.get_firewall_logs(ip_address=" 192.0.2.10 ", action="block", limit=10)
+
+    assert len(logs) == 1
+    assert logs[0].destination_ip == "192.0.2.10"
+    assert transport.get_urls[-1] == "https://192.0.2.1:8843/status_logs_filter.php"
+
+
+def test_get_firewall_logs_rejects_invalid_filters_before_login_network_calls() -> None:
+    transport = FakeWebGuiTransport(login_html=login_page(), login_response=dashboard_page())
+    client = PfSenseWebGuiClient(sample_config(), transport=transport)
+
+    with pytest.raises(ValueError, match="single valid IP"):
+        client.get_firewall_logs(ip_address="192.0.2.10; rm -rf /")
+    with pytest.raises(ValueError, match="pass, block, or reject"):
+        client.get_firewall_logs(action="drop")
+
+    assert not transport.get_urls
+    assert not transport.posted_forms
+
+
+def test_get_firewall_aliases_fetches_aliases_page() -> None:
+    transport = FakeWebGuiTransport(
+        login_html=login_page(),
+        login_response=dashboard_page(),
+        page_response="""
+        <table>
+          <tr><th>Name</th><th>Type</th><th>Values</th><th>Description</th><th>Actions</th></tr>
+          <tr><td>trusted_hosts</td><td>Host(s)</td><td>192.0.2.10</td><td>Trusted hosts</td><td></td></tr>
+        </table>
+        """,
+    )
+    client = PfSenseWebGuiClient(sample_config(), transport=transport)
+
+    aliases = client.get_firewall_aliases()
+
+    assert aliases[0].name == "trusted_hosts"
+    assert transport.get_urls[-1] == "https://192.0.2.1:8843/firewall_aliases.php"
+
+
+def test_get_firewall_rules_uses_safe_optional_interface_query() -> None:
+    transport = FakeWebGuiTransport(
+        login_html=login_page(),
+        login_response=dashboard_page(),
+        page_response="""
+        <table>
+          <tr><th></th><th></th><th>States</th><th>Protocol</th><th>Source</th><th>Port</th><th>Destination</th><th>Port</th><th>Gateway</th><th>Queue</th><th>Schedule</th><th>Description</th><th>Actions</th></tr>
+          <tr><td></td><td></td><td>0/0 B</td><td>*</td><td>*</td><td>*</td><td>*</td><td>*</td><td>*</td><td>*</td><td></td><td>Default</td><td></td></tr>
+        </table>
+        """,
+    )
+    client = PfSenseWebGuiClient(sample_config(), transport=transport)
+
+    rules = client.get_firewall_rules(interface="WAN")
+
+    assert rules[0].interface == "wan"
+    assert transport.get_urls[-1] == "https://192.0.2.1:8843/firewall_rules.php?if=wan"
+
+
+def test_get_firewall_rules_rejects_invalid_interface_before_login_network_calls() -> None:
+    transport = FakeWebGuiTransport(login_html=login_page(), login_response=dashboard_page())
+    client = PfSenseWebGuiClient(sample_config(), transport=transport)
+
+    with pytest.raises(ValueError, match="simple interface token"):
+        client.get_firewall_rules(interface="wan&act=del")
+
+    assert not transport.get_urls
+    assert not transport.posted_forms
+
+
 def test_get_page_rejects_absolute_or_parent_paths() -> None:
     transport = FakeWebGuiTransport(login_html=login_page(), login_response=dashboard_page())
     client = PfSenseWebGuiClient(sample_config(), transport=transport)
