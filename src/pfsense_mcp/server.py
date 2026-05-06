@@ -10,6 +10,11 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from pfsense_mcp.config import PfSenseConfig, load_config
+from pfsense_mcp.troubleshooting import (
+    build_health_report,
+    diagnose_host as build_host_diagnosis,
+    normalize_troubleshoot_ip,
+)
 from pfsense_mcp.webgui import PfSenseWebGuiClient
 
 
@@ -166,6 +171,104 @@ class PfSenseToolHandlers:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             return _safe_error(exc)
 
+    def diagnose_host(  # pylint: disable=too-many-arguments,too-many-locals
+        self,
+        *,
+        ip_address: str,
+        destination_port: str | None = None,
+        protocol: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, object]:
+        """Return a passive read-only host troubleshooting report."""
+        try:
+            normalized_ip = normalize_troubleshoot_ip(ip_address)
+            config = self._config_loader()
+            client = self._client_factory(config)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return _safe_error(exc)
+
+        components: dict[str, dict[str, object]] = {}
+        arp_entries = _collect_component(components, "arp_entries", client.get_arp_table)
+        dhcp_leases = _collect_component(components, "dhcp_leases", client.get_dhcp_leases)
+        firewall_states = _collect_component(
+            components,
+            "firewall_states",
+            lambda: client.get_firewall_states(ip_address=normalized_ip, limit=limit),
+        )
+        firewall_logs = _collect_component(
+            components,
+            "firewall_logs",
+            lambda: client.get_firewall_logs(
+                ip_address=normalized_ip,
+                protocol=protocol,
+                limit=limit,
+            ),
+        )
+        firewall_aliases = _collect_component(components, "firewall_aliases", client.get_firewall_aliases)
+        firewall_rules = _collect_component(components, "firewall_rules", client.get_firewall_rules)
+        report = build_host_diagnosis(
+            normalized_ip,
+            arp_entries=arp_entries,
+            dhcp_leases=dhcp_leases,
+            firewall_states=firewall_states,
+            firewall_logs=firewall_logs,
+            firewall_aliases=firewall_aliases,
+            firewall_rules=firewall_rules,
+            destination_port=destination_port,
+            protocol=protocol,
+        )
+        report["components"] = components
+        if any(component["status"] == "error" for component in components.values()):
+            report["status"] = "warning"
+            report["issues"] = [
+                *report["issues"],
+                "One or more host diagnosis components could not be collected",
+            ]
+            report["summary"] = f"Passive WebGUI evidence for {normalized_ip} is warning: " + "; ".join(
+                report["issues"]
+            )
+        return report
+
+    def get_health_report(self, *, limit: int = 100) -> dict[str, object]:
+        """Return a passive read-only pfSense health report."""
+        try:
+            config = self._config_loader()
+            client = self._client_factory(config)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return _safe_error(exc)
+
+        components: dict[str, dict[str, object]] = {}
+        arp_entries = _collect_component(components, "arp_entries", client.get_arp_table)
+        dhcp_leases = _collect_component(components, "dhcp_leases", client.get_dhcp_leases)
+        firewall_states = _collect_component(
+            components,
+            "firewall_states",
+            lambda: client.get_firewall_states(limit=limit),
+        )
+        firewall_logs = _collect_component(
+            components,
+            "firewall_logs",
+            lambda: client.get_firewall_logs(limit=limit),
+        )
+        firewall_aliases = _collect_component(components, "firewall_aliases", client.get_firewall_aliases)
+        firewall_rules = _collect_component(components, "firewall_rules", client.get_firewall_rules)
+        report = build_health_report(
+            arp_entries=arp_entries,
+            dhcp_leases=dhcp_leases,
+            firewall_states=firewall_states,
+            firewall_logs=firewall_logs,
+            firewall_aliases=firewall_aliases,
+            firewall_rules=firewall_rules,
+        )
+        report["components"] = components
+        if any(component["status"] == "error" for component in components.values()):
+            report["status"] = "warning"
+            report["findings"] = [
+                *report["findings"],
+                "One or more health report components could not be collected",
+            ]
+        return report
+
 
 def create_mcp_server(*, handlers: PfSenseToolHandlers | None = None) -> FastMCP:
     """Create the stdio-capable FastMCP server with read-only pfSense tools."""
@@ -229,12 +332,46 @@ def create_mcp_server(*, handlers: PfSenseToolHandlers | None = None) -> FastMCP
         """Return read-only pfSense firewall rules, optionally for one interface tab."""
         return tool_handlers.get_firewall_rules(interface=interface)
 
+    @server.tool(name="pfsense_diagnose_host", annotations=READ_ONLY_ANNOTATIONS)
+    def pfsense_diagnose_host(
+        ip_address: str,
+        destination_port: str | None = None,
+        protocol: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, object]:
+        """Diagnose one host using passive ARP, DHCP, firewall state/log, alias, and rule evidence."""
+        return tool_handlers.diagnose_host(
+            ip_address=ip_address,
+            destination_port=destination_port,
+            protocol=protocol,
+            limit=limit,
+        )
+
+    @server.tool(name="pfsense_get_health_report", annotations=READ_ONLY_ANNOTATIONS)
+    def pfsense_get_health_report(limit: int = 100) -> dict[str, object]:
+        """Return a passive read-only pfSense health report from available WebGUI pages."""
+        return tool_handlers.get_health_report(limit=limit)
+
     return server
 
 
 def main() -> None:
     """Run the pfSense MCP server over stdio."""
     create_mcp_server().run(transport="stdio")
+
+
+def _collect_component(
+    components: dict[str, dict[str, object]],
+    name: str,
+    collector: Callable[[], list[object]],
+) -> list[object]:
+    try:
+        entries = collector()
+        components[name] = {"status": "ok", "count": len(entries)}
+        return entries
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        components[name] = {"status": "error", "error_type": exc.__class__.__name__}
+        return []
 
 
 def _base_url_host(config: PfSenseConfig | None) -> str | None:

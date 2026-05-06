@@ -443,6 +443,122 @@ def test_get_firewall_rules_redacts_retrieval_errors() -> None:
     assert LOGIN_FORM_VALUE not in repr(result)
 
 
+def test_diagnose_host_returns_passive_troubleshooting_report() -> None:
+    class CapturingTroubleshootingClient(FakePfSenseClient):
+        """Fake client that records troubleshooting filter arguments."""
+
+        captured: dict[str, object] = {}
+
+        def get_firewall_states(
+            self, ip_address: str | None = None, limit: int = 200
+        ) -> list[FirewallStateEntry]:
+            self.captured["state_ip_address"] = ip_address
+            self.captured["state_limit"] = limit
+            return [super().get_firewall_states()[0]]
+
+        def get_firewall_logs(  # pylint: disable=too-many-arguments
+            self,
+            *,
+            ip_address: str | None = None,
+            action: str | None = None,
+            interface: str | None = None,
+            protocol: str | None = None,
+            limit: int = 200,
+        ) -> list[FirewallLogEntry]:
+            self.captured["log_ip_address"] = ip_address
+            self.captured["log_protocol"] = protocol
+            self.captured["log_limit"] = limit
+            return [super().get_firewall_logs()[0]]
+
+    result = _handlers(CapturingTroubleshootingClient).diagnose_host(
+        ip_address="192.0.2.10", destination_port="443", protocol="tcp", limit=25
+    )
+
+    assert result["ip_address"] == "192.0.2.10"
+    assert result["status"] == "blocked"
+    assert result["checks"]["arp"]["present"] is True
+    assert result["checks"]["firewall_logs"]["blocked_count"] == 1
+    assert CapturingTroubleshootingClient.captured == {
+        "state_ip_address": "192.0.2.10",
+        "state_limit": 25,
+        "log_ip_address": "192.0.2.10",
+        "log_protocol": "tcp",
+        "log_limit": 25,
+    }
+
+
+def test_diagnose_host_rejects_invalid_ip_before_loading_config() -> None:
+    def fail_config_loader() -> PfSenseConfig:
+        raise AssertionError("config should not load for invalid troubleshoot IP")
+
+    handlers = PfSenseToolHandlers(config_loader=fail_config_loader, client_factory=FakePfSenseClient)
+
+    result = handlers.diagnose_host(ip_address="not-an-ip")
+
+    assert result == {"error_type": "ValueError"}
+
+
+def test_diagnose_host_keeps_partial_results_when_one_component_fails() -> None:
+    class PartiallyFailingTroubleshootingClient(FakePfSenseClient):
+        """Fake client that fails one troubleshooting component."""
+
+        def get_firewall_states(
+            self, ip_address: str | None = None, limit: int = 200
+        ) -> list[FirewallStateEntry]:
+            del ip_address, limit
+            return [super().get_firewall_states()[0]]
+
+        def get_firewall_logs(  # pylint: disable=too-many-arguments
+            self,
+            *,
+            ip_address: str | None = None,
+            action: str | None = None,
+            interface: str | None = None,
+            protocol: str | None = None,
+            limit: int = 200,
+        ) -> list[FirewallLogEntry]:
+            del ip_address, action, interface, protocol, limit
+            return [super().get_firewall_logs()[0]]
+
+        def get_firewall_aliases(self) -> list[FirewallAliasEntry]:
+            raise RuntimeError(f"aliases failed with {self.config.password}")
+
+    result = _handlers(PartiallyFailingTroubleshootingClient).diagnose_host(
+        ip_address="192.0.2.10", limit=200
+    )
+
+    assert result["status"] == "warning"
+    assert result["checks"]["arp"]["present"] is True
+    assert result["components"]["firewall_aliases"] == {
+        "status": "error",
+        "error_type": "RuntimeError",
+    }
+    assert LOGIN_FORM_VALUE not in repr(result)
+
+
+def test_get_health_report_returns_passive_summary() -> None:
+    result = _handlers().get_health_report(limit=200)
+
+    assert result["status"] == "warning"
+    assert result["summary"]["arp_entries"] == 1
+    assert result["summary"]["dhcp_leases"] == 1
+    assert result["summary"]["active_firewall_states"] == 1
+    assert result["summary"]["blocked_or_rejected_logs"] == 1
+    assert result["not_performed_active_checks"]
+
+
+def test_get_health_report_keeps_partial_results_when_one_component_fails() -> None:
+    result = _handlers(FailingFirewallLogsPfSenseClient).get_health_report()
+
+    assert result["status"] == "warning"
+    assert result["components"]["firewall_logs"] == {
+        "status": "error",
+        "error_type": "RuntimeError",
+    }
+    assert result["summary"]["arp_entries"] == 1
+    assert LOGIN_FORM_VALUE not in repr(result)
+
+
 def test_create_mcp_server_registers_read_only_tools() -> None:
     server = create_mcp_server(handlers=_handlers())
 
@@ -456,6 +572,8 @@ def test_create_mcp_server_registers_read_only_tools() -> None:
         "pfsense_get_firewall_logs",
         "pfsense_get_firewall_aliases",
         "pfsense_get_firewall_rules",
+        "pfsense_diagnose_host",
+        "pfsense_get_health_report",
     ]
     assert all(tool.annotations.readOnlyHint is True for tool in tools)
     assert all(tool.annotations.destructiveHint is False for tool in tools)
